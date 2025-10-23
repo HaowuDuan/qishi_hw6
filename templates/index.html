@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel 智能体 - 数据分析助手</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.4.0/axios.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <style>
+        .code-block {
+            background-color: #f4f4f4;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+        }
+        .result-table {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .analysis-result {
+            max-height: 500px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+        }
+        .code-result {
+            max-height: 500px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+        }
+        .voice-recording {
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">Excel 智能体</h1>
+            <p class="text-gray-600">上传Excel文件，用自然语言描述分析需求，AI将自动生成Python代码并执行分析</p>
+        </div>
+
+        <!-- Main Content -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- Left Panel: File Upload & Input -->
+            <div class="space-y-6">
+                <!-- File Upload -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h2 class="text-xl font-semibold mb-4">1. 上传Excel文件</h2>
+                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                        <input type="file" id="fileInput" accept=".xlsx,.xls" class="hidden">
+                        <button onclick="document.getElementById('fileInput').click()" 
+                                class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg transition-colors">
+                            选择Excel文件
+                        </button>
+                        <p class="text-gray-500 mt-2">支持 .xlsx 和 .xls 格式</p>
+                    </div>
+                    <div id="fileInfo" class="mt-4 hidden">
+                        <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                            <p class="text-green-800 font-medium">文件上传成功</p>
+                            <p id="fileName" class="text-green-600 text-sm"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Natural Language Input -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h2 class="text-xl font-semibold mb-4">2. 描述分析需求</h2>
+                    <div class="space-y-4">
+                        <!-- Text Input -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">自然语言输入</label>
+                            <textarea id="queryInput" 
+                                    placeholder="例如：帮我分析各地区销售趋势，按月份统计销售额"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    rows="3"></textarea>
+                        </div>
+
+                        <!-- Voice Input -->
+                        <div class="flex items-center space-x-4">
+                            <button id="voiceBtn" 
+                                    class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center space-x-2">
+                                <span>🎤</span>
+                                <span id="voiceBtnText">语音输入</span>
+                            </button>
+                            <p class="text-sm text-gray-500">点击开始录音，再次点击停止</p>
+                        </div>
+
+                        <!-- Submit Button -->
+                        <button id="analyzeBtn" 
+                                class="w-full bg-purple-500 hover:bg-purple-600 text-white px-6 py-3 rounded-lg transition-colors disabled:bg-gray-400"
+                                disabled>
+                            开始分析
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Results -->
+            <div class="space-y-6">
+                <!-- Analysis Results -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h2 class="text-xl font-semibold mb-4">分析结果</h2>
+                    <div id="results" class="space-y-4">
+                        <div class="text-gray-500 text-center py-8">
+                            请先上传文件并输入分析需求
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Generated Code -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h2 class="text-xl font-semibold mb-4">生成的Python代码</h2>
+                    <div id="generatedCode" class="code-block text-sm">
+                        <div class="text-gray-500 text-center py-4">
+                            代码将在这里显示
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let socket;
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+        let currentFile = null;
+        let currentFileId = null;
+
+        // Initialize WebSocket connection
+        function initSocket() {
+            socket = io();
+            
+            socket.on('connect', function() {
+                console.log('Connected to server');
+            });
+
+            socket.on('voice_result', function(data) {
+                document.getElementById('queryInput').value = data.text;
+                document.getElementById('voiceBtnText').textContent = '语音输入';
+                isRecording = false;
+            });
+
+            socket.on('error', function(data) {
+                alert('错误: ' + data.message);
+            });
+        }
+
+        // File upload handling
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                uploadFile(file);
+            }
+        });
+
+        function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            axios.post('/upload', formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                }
+            })
+            .then(response => {
+                console.log('Upload response:', response.data);
+                if (response.data.success) {
+                    currentFile = file;
+                    currentFileId = response.data.file_id;
+                    document.getElementById('fileInfo').classList.remove('hidden');
+                    document.getElementById('fileName').textContent = file.name;
+                    
+                    // 显示成功消息
+                    alert('✅ 文件上传成功！正在预处理中，请稍候...');
+                    
+                    // 开始检查预处理状态
+                    checkPreprocessingStatus();
+                } else {
+                    alert('文件上传失败: ' + response.data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Upload error:', error);
+                alert('文件上传失败');
+            });
+        }
+
+        function checkPreprocessingStatus() {
+            console.log('=== checkPreprocessingStatus called ===');
+            console.log('currentFileId:', currentFileId);
+            console.log('typeof currentFileId:', typeof currentFileId);
+            
+            if (!currentFileId) {
+                console.error('No currentFileId, cannot check preprocessing status');
+                alert('错误：文件ID丢失，请重新上传文件');
+                return;
+            }
+            
+            console.log('Sending check_preprocessing request...');
+            axios.post('/check_preprocessing', {
+                file_id: currentFileId
+            })
+            .then(response => {
+                console.log('=== Preprocessing check response ===');
+                console.log('Response status:', response.status);
+                console.log('Response data:', response.data);
+                console.log('Response data type:', typeof response.data);
+                console.log('Response data.success:', response.data.success);
+                console.log('Response data.status:', response.data.status);
+                console.log('Response data keys:', Object.keys(response.data));
+                
+                // 检查响应是否有效
+                if (!response.data) {
+                    console.error('❌ No response data received');
+                    alert('预处理检查失败：没有收到响应数据');
+                    return;
+                }
+                
+                // 检查 success 字段
+                if (response.data.success === true) {
+                    if (response.data.status === 'completed') {
+                        console.log('✅ Preprocessing completed, enabling analyze button');
+                        document.getElementById('analyzeBtn').disabled = false;
+                        showDataPreview(response.data.data_preview, response.data.columns);
+                        alert('🎉 文件预处理完成！现在可以开始分析了。');
+                    } else {
+                        console.log('⏳ Preprocessing not completed yet, checking again in 1 second');
+                        // 继续检查预处理状态
+                        setTimeout(checkPreprocessingStatus, 1000);
+                    }
+                } else {
+                    console.error('❌ Preprocessing check failed:', response.data.error);
+                    console.error('Success value:', response.data.success);
+                    console.error('Success type:', typeof response.data.success);
+                    alert('预处理检查失败: ' + (response.data.error || '未知错误'));
+                }
+            })
+            .catch(error => {
+                console.error('❌ Check preprocessing error:', error);
+                console.error('Error details:', error.response?.data);
+                alert('预处理检查出错: ' + error.message);
+            });
+        }
+
+        function showDataPreview(data, columns) {
+            const resultsDiv = document.getElementById('results');
+            
+            // 检查数据质量
+            const hasUnnamedColumns = columns.some(col => col.startsWith('Unnamed'));
+            const hasDuplicateColumns = columns.length !== new Set(columns).size;
+            
+            let warningMessage = '';
+            if (hasUnnamedColumns || hasDuplicateColumns) {
+                warningMessage = `
+                    <div class="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <h4 class="font-semibold text-yellow-800 mb-2">⚠️ 数据质量警告</h4>
+                        <p class="text-yellow-700 text-sm">
+                            ${hasUnnamedColumns ? '• 检测到未命名的列，可能影响分析结果<br>' : ''}
+                            ${hasDuplicateColumns ? '• 检测到重复的列名，可能影响分析结果<br>' : ''}
+                            建议检查原始Excel文件的表头设置
+                        </p>
+                    </div>
+                `;
+            }
+            
+            resultsDiv.innerHTML = `
+                ${warningMessage}
+                <div class="mb-4">
+                    <h3 class="font-semibold text-gray-700 mb-2">数据预览</h3>
+                    <div class="result-table">
+                        <table class="min-w-full border border-gray-300">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    ${columns.map(col => `<th class="px-3 py-2 border border-gray-300 text-left">${col}</th>`).join('')}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.slice(0, 10).map(row => `
+                                    <tr>
+                                        ${Object.values(row).map(cell => `<td class="px-3 py-2 border border-gray-300">${cell}</td>`).join('')}
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="text-sm text-gray-500 mt-2">显示前10行数据，完整数据将在分析时使用</p>
+                </div>
+            `;
+        }
+
+        // Voice input handling
+        document.getElementById('voiceBtn').addEventListener('click', function() {
+            if (!isRecording) {
+                startRecording();
+            } else {
+                stopRecording();
+            }
+        });
+
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = function(event) {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = function() {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    const reader = new FileReader();
+                    reader.onload = function() {
+                        const base64Audio = reader.result.split(',')[1];
+                        socket.emit('voice_input', { audio: base64Audio });
+                    };
+                    reader.readAsDataURL(audioBlob);
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                document.getElementById('voiceBtnText').textContent = '停止录音';
+                document.getElementById('voiceBtn').classList.add('voice-recording');
+            } catch (error) {
+                console.error('Error accessing microphone:', error);
+                alert('无法访问麦克风，请检查权限设置');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                isRecording = false;
+                document.getElementById('voiceBtnText').textContent = '语音输入';
+                document.getElementById('voiceBtn').classList.remove('voice-recording');
+            }
+        }
+
+        // Analysis handling
+        document.getElementById('analyzeBtn').addEventListener('click', function() {
+            console.log('Analyze button clicked!');
+            console.log('Button disabled:', document.getElementById('analyzeBtn').disabled);
+            console.log('Current file:', currentFile);
+            console.log('Current file ID:', currentFileId);
+            
+            const query = document.getElementById('queryInput').value.trim();
+            console.log('Query input:', query);
+            
+            if (!query) {
+                alert('请输入分析需求');
+                return;
+            }
+
+            if (!currentFile) {
+                alert('请先上传Excel文件');
+                return;
+            }
+
+            performAnalysis(query);
+        });
+
+        function performAnalysis(query) {
+            console.log('Starting analysis with query:', query);
+            console.log('Current file ID:', currentFileId);
+            
+            if (!currentFileId) {
+                alert('错误：文件ID丢失，请重新上传文件');
+                return;
+            }
+            
+            document.getElementById('analyzeBtn').disabled = true;
+            document.getElementById('analyzeBtn').textContent = '分析中...';
+
+            console.log('Sending analysis request...');
+            axios.post('/analyze', {
+                query: query,
+                file_id: currentFileId
+            })
+            .then(response => {
+                console.log('Analysis response:', response.data);
+                if (response.data.success) {
+                    displayResults(response.data);
+                    alert('🎉 分析完成！请查看结果。');
+                } else {
+                    console.error('Analysis failed:', response.data.error);
+                    alert('分析失败: ' + response.data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Analysis error:', error);
+                console.error('Error details:', error.response?.data);
+                alert('分析失败: ' + (error.response?.data?.error || error.message));
+            })
+            .finally(() => {
+                document.getElementById('analyzeBtn').disabled = false;
+                document.getElementById('analyzeBtn').textContent = '开始分析';
+            });
+        }
+
+        function displayResults(data) {
+            // Display generated code
+            document.getElementById('generatedCode').innerHTML = 
+                `<div class="code-result">${data.generated_code}</div>`;
+
+            // Display results
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = `
+                <div class="mb-4">
+                    <h3 class="font-semibold text-gray-700 mb-2">分析结果</h3>
+                    <div class="analysis-result">${data.result}</div>
+                </div>
+            `;
+
+        }
+
+        // Initialize the application
+        initSocket();
+    </script>
+</body>
+</html>
