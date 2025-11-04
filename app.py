@@ -13,6 +13,10 @@ import tempfile
 import requests
 import logging
 from datetime import datetime
+import base64
+import io
+import speech_recognition as sr
+from pydub import AudioSegment
 
 # Import our modules
 from dismantle_excel import main_unmerge_file, get_excel_data
@@ -365,9 +369,55 @@ class ExcelProcessor:
             logger.error(f"Sample extraction failed: {e}")
             return []
 
+class VoiceRecognitionService:
+    """Voice recognition service for real-time speech-to-text"""
+    
+    def __init__(self):
+        self.recognizer = sr.Recognizer()
+        # 配置语音识别参数
+        self.recognizer.energy_threshold = 300
+        self.recognizer.dynamic_energy_threshold = True
+        self.recognizer.pause_threshold = 0.8
+        self.recognizer.operation_timeout = None
+        self.recognizer.phrase_threshold = 0.3
+        self.recognizer.non_speaking_duration = 0.8
+    
+    def recognize_audio(self, audio_data):
+        """Convert audio data to text using speech recognition"""
+        try:
+            logger.info("Starting voice recognition...")
+            
+            # 将base64音频数据转换为音频对象
+            audio_bytes = base64.b64decode(audio_data)
+            audio_segment = AudioSegment.from_wav(io.BytesIO(audio_bytes))
+            
+            # 转换为speech_recognition可识别的格式
+            audio_source = sr.AudioData(
+                audio_segment.raw_data,
+                audio_segment.frame_rate,
+                audio_segment.sample_width
+            )
+            
+            # 使用Google语音识别API（免费）
+            try:
+                text = self.recognizer.recognize_google(audio_source, language='zh-CN')
+                logger.info(f"Voice recognition result: {text}")
+                return text
+            except sr.UnknownValueError:
+                logger.warning("Google Speech Recognition could not understand audio")
+                return "抱歉，无法识别语音内容，请重试"
+            except sr.RequestError as e:
+                logger.error(f"Could not request results from Google Speech Recognition service; {e}")
+                return "语音识别服务暂时不可用，请稍后重试"
+                
+        except Exception as e:
+            logger.error(f"Voice recognition failed: {e}", exc_info=True)
+            return f"语音识别出错: {str(e)}"
+
 # Initialize services
 llm_service = LLMService()
 excel_processor = ExcelProcessor()
+voice_service = VoiceRecognitionService()
 
 @app.route('/')
 def index():
@@ -563,13 +613,29 @@ def _extract_columns_used(code, structure):
 
 @socketio.on('voice_input')
 def handle_voice_input(data):
-    """Handle voice input (placeholder for future implementation)"""
+    """Handle real-time voice input and convert to text"""
     try:
-        # This would integrate with speech-to-text service
-        # For now, just emit a placeholder response
-        emit('voice_result', {'text': '语音输入功能待实现'})
+        logger.info("Received voice input via WebSocket")
+        
+        # 检查是否包含音频数据
+        if 'audio' not in data:
+            emit('voice_result', {'text': '未收到音频数据，请重试'})
+            return
+        
+        # 获取音频数据
+        audio_data = data['audio']
+        logger.info(f"Audio data length: {len(audio_data)}")
+        
+        # 使用语音识别服务转换音频为文本
+        recognized_text = voice_service.recognize_audio(audio_data)
+        
+        # 发送识别结果
+        emit('voice_result', {'text': recognized_text})
+        logger.info(f"Voice recognition completed: {recognized_text}")
+        
     except Exception as e:
-        emit('error', {'message': str(e)})
+        logger.error(f"Voice input handling failed: {e}", exc_info=True)
+        emit('error', {'message': f'语音处理出错: {str(e)}'})
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5002)

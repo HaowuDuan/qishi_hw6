@@ -95,13 +95,19 @@
                         </div>
 
                         <!-- Voice Input -->
-                        <div class="flex items-center space-x-4">
-                            <button id="voiceBtn" 
-                                    class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center space-x-2">
-                                <span>🎤</span>
-                                <span id="voiceBtnText">语音输入</span>
-                            </button>
-                            <p class="text-sm text-gray-500">点击开始录音，再次点击停止</p>
+                        <div class="space-y-2">
+                            <div class="flex items-center space-x-4">
+                                <button id="voiceBtn" 
+                                        class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors flex items-center space-x-2">
+                                    <span>🎤</span>
+                                    <span id="voiceBtnText">语音输入</span>
+                                </button>
+                                <p class="text-sm text-gray-500">点击开始录音，再次点击停止</p>
+                            </div>
+                            <div id="voiceStatus" class="hidden text-sm text-blue-600">
+                                <span class="inline-block w-2 h-2 bg-blue-500 rounded-full animate-pulse mr-2"></span>
+                                <span id="voiceStatusText">正在处理语音...</span>
+                            </div>
                         </div>
 
                         <!-- Submit Button -->
@@ -158,13 +164,41 @@
             });
 
             socket.on('voice_result', function(data) {
-                document.getElementById('queryInput').value = data.text;
+                console.log('Voice recognition result:', data.text);
+                
+                // 隐藏状态指示器
+                document.getElementById('voiceStatus').classList.add('hidden');
+                
+                // 更新输入框内容
+                const currentText = document.getElementById('queryInput').value;
+                const newText = data.text;
+                
+                // 如果识别成功且不是错误信息，则更新输入框
+                if (newText && !newText.includes('抱歉') && !newText.includes('语音识别') && !newText.includes('出错')) {
+                    document.getElementById('queryInput').value = newText;
+                    console.log('Voice input successfully recognized and added to text area');
+                } else {
+                    // 显示错误信息
+                    alert('语音识别结果: ' + newText);
+                }
+                
+                // 重置按钮状态
                 document.getElementById('voiceBtnText').textContent = '语音输入';
+                document.getElementById('voiceBtn').classList.remove('voice-recording');
                 isRecording = false;
             });
 
             socket.on('error', function(data) {
-                alert('错误: ' + data.message);
+                console.error('WebSocket error:', data.message);
+                alert('语音处理错误: ' + data.message);
+                
+                // 隐藏状态指示器
+                document.getElementById('voiceStatus').classList.add('hidden');
+                
+                // 重置按钮状态
+                document.getElementById('voiceBtnText').textContent = '语音输入';
+                document.getElementById('voiceBtn').classList.remove('voice-recording');
+                isRecording = false;
             });
         }
 
@@ -322,31 +356,63 @@
 
         async function startRecording() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
+                // 请求麦克风权限，使用更高质量的音频设置
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: 44100
+                    } 
+                });
+                
+                // 使用WAV格式进行录制
+                const options = { mimeType: 'audio/webm;codecs=opus' };
+                if (MediaRecorder.isTypeSupported('audio/wav')) {
+                    options.mimeType = 'audio/wav';
+                }
+                
+                mediaRecorder = new MediaRecorder(stream, options);
                 audioChunks = [];
 
                 mediaRecorder.ondataavailable = function(event) {
-                    audioChunks.push(event.data);
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
                 };
 
                 mediaRecorder.onstop = function() {
                     const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    
+                    // 检查音频长度，太短的音频可能无法识别
+                    if (audioBlob.size < 1000) {
+                        alert('录音时间太短，请重新录制');
+                        return;
+                    }
+                    
                     const reader = new FileReader();
                     reader.onload = function() {
                         const base64Audio = reader.result.split(',')[1];
+                        console.log('Sending audio data via WebSocket...');
                         socket.emit('voice_input', { audio: base64Audio });
                     };
                     reader.readAsDataURL(audioBlob);
                 };
 
-                mediaRecorder.start();
+                // 开始录制，每100ms收集一次数据
+                mediaRecorder.start(100);
                 isRecording = true;
                 document.getElementById('voiceBtnText').textContent = '停止录音';
                 document.getElementById('voiceBtn').classList.add('voice-recording');
+                
+                // 显示录音状态
+                document.getElementById('voiceStatus').classList.remove('hidden');
+                document.getElementById('voiceStatusText').textContent = '正在录音...';
+                
+                console.log('Recording started...');
             } catch (error) {
                 console.error('Error accessing microphone:', error);
-                alert('无法访问麦克风，请检查权限设置');
+                alert('无法访问麦克风，请检查权限设置。错误: ' + error.message);
             }
         }
 
@@ -357,6 +423,11 @@
                 isRecording = false;
                 document.getElementById('voiceBtnText').textContent = '语音输入';
                 document.getElementById('voiceBtn').classList.remove('voice-recording');
+                
+                // 更新状态为处理中
+                document.getElementById('voiceStatusText').textContent = '正在识别语音...';
+                
+                console.log('Recording stopped, processing audio...');
             }
         }
 
